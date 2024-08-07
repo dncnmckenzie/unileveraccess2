@@ -10,6 +10,9 @@ app = Flask(__name__)
 EMAIL_USER = os.environ.get('EMAIL_USER')
 EMAIL_PASS = os.environ.get('EMAIL_PASS')
 
+print(f'EMAIL_USER: {EMAIL_USER}')
+print(f'EMAIL_PASS: {EMAIL_PASS}')
+
 def send_email(subject, body, to_email, signature_data=None):
     msg = MIMEMultipart('related')
     msg['From'] = EMAIL_USER
@@ -145,4 +148,5 @@ def submit_vehicle_sign_out():
     return redirect('/')
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(debug=True, host='0.0.0.0', port=port)
