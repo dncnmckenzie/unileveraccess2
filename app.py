@@ -1,55 +1,49 @@
-from flask import Flask, request, redirect, render_template
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 import os
+import smtplib
+from flask import Flask, render_template, request, redirect, url_for
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.image import MIMEImage
+import base64
 
 app = Flask(__name__)
 
-# Environment variables for email
-EMAIL_USER = os.environ.get('EMAIL_USER')
-EMAIL_PASS = os.environ.get('EMAIL_PASS')
+# Environment variables for email credentials
+EMAIL_ADDRESS = os.environ.get('EMAIL_USER')
+EMAIL_PASSWORD = os.environ.get('EMAIL_PASS')
+ADMIN_EMAIL = os.environ.get('ADMIN_EMAIL')
 
-print(f'EMAIL_USER: {EMAIL_USER}')
-print(f'EMAIL_PASS: {EMAIL_PASS}')
+# Dummy data storage
+visitors = []
+vehicles = []
+keys = []
 
-def send_email(subject, body, to_email, signature_data=None):
-    msg = MIMEMultipart('related')
-    msg['From'] = EMAIL_USER
+def send_email(subject, body, to_email, signature_image=None):
+    msg = MIMEMultipart()
+    msg['From'] = EMAIL_ADDRESS
     msg['To'] = to_email
     msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'html'))  # Use 'html' to support embedding images
 
-    msg_alternative = MIMEMultipart('alternative')
-    msg.attach(msg_alternative)
-
-    html_body = f"""
-    <html>
-      <body>
-        <p>{body.replace('\\n', '<br>')}</p>
-    """
-    if signature_data:
-        html_body += f'<img src="{signature_data}">'
-
-    html_body += """
-      </body>
-    </html>
-    """
-
-    msg_text = MIMEText(html_body, 'html')
-    msg_alternative.attach(msg_text)
+    if signature_image:
+        image_data = base64.b64decode(signature_image.split(',')[1])
+        image = MIMEImage(image_data, name='signature.png')
+        msg.attach(image)
+        body += '<br><img src="cid:signature.png">'
+        msg.attach(MIMEText(body, 'html'))
 
     try:
         with smtplib.SMTP('smtp.office365.com', 587) as server:
             server.starttls()
-            server.login(EMAIL_USER, EMAIL_PASS)
-            server.sendmail(EMAIL_USER, to_email, msg.as_string())
-        print(f'Email sent to {to_email}')
+            server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
+            text = msg.as_string()
+            server.sendmail(EMAIL_ADDRESS, to_email, text)
     except Exception as e:
-        print(f'Failed to send email: {e}')
+        print(f"Failed to send email: {e}")
 
 @app.route('/')
-def index():
-    return render_template('index.html')
+def dashboard():
+    return render_template('dashboard.html')
 
 @app.route('/visitor_options')
 def visitor_options():
@@ -69,7 +63,7 @@ def sign_in():
 
 @app.route('/sign_out')
 def sign_out():
-    return render_template('sign_out.html')
+    return render_template('sign_out.html', visitors=visitors)
 
 @app.route('/vehicle_sign_in')
 def vehicle_sign_in():
@@ -77,7 +71,7 @@ def vehicle_sign_in():
 
 @app.route('/vehicle_sign_out')
 def vehicle_sign_out():
-    return render_template('vehicle_sign_out.html')
+    return render_template('vehicle_sign_out.html', vehicles=vehicles)
 
 @app.route('/key_sign_in')
 def key_sign_in():
@@ -85,7 +79,7 @@ def key_sign_in():
 
 @app.route('/key_sign_out')
 def key_sign_out():
-    return render_template('key_sign_out.html')
+    return render_template('key_sign_out.html', keys=keys)
 
 @app.route('/submit_sign_in', methods=['POST'])
 def submit_sign_in():
@@ -96,36 +90,33 @@ def submit_sign_in():
     site_contact = request.form['siteContact']
     signature = request.form['signature']
 
-    body = f"Visitor Sign In:\nName: {full_name}\nCompany: {company}\nVehicle: {vehicle_registration}\nMobile: {mobile_number}\nContact: {site_contact}"
-    send_email("Visitor Sign In", body, "recipient@example.com", signature)
-    return redirect('/')
+    visitors.append({'full_name': full_name})
+
+    subject = "Visitor Sign In Notification"
+    body = f"""
+    <p>Full Name: {full_name}</p>
+    <p>Company: {company}</p>
+    <p>Vehicle Registration: {vehicle_registration}</p>
+    <p>Mobile Number: {mobile_number}</p>
+    <p>Site Contact: {site_contact}</p>
+    <p>Signature:</p>
+    """
+
+    send_email(subject, body, ADMIN_EMAIL, signature_image=signature)
+
+    return redirect(url_for('dashboard'))
 
 @app.route('/submit_sign_out', methods=['POST'])
 def submit_sign_out():
     full_name = request.form['fullName']
-    body = f"Visitor Sign Out:\nName: {full_name}"
-    send_email("Visitor Sign Out", body, "recipient@example.com")
-    return redirect('/')
+    visitors[:] = [visitor for visitor in visitors if visitor['full_name'] != full_name]
 
-@app.route('/submit_key_sign_in', methods=['POST'])
-def submit_key_sign_in():
-    full_name = request.form['fullName']
-    company = request.form['company']
-    key_number = request.form['keyNumber']
-    mobile_number = request.form['mobileNumber']
-    site_contact = request.form['siteContact']
-    signature = request.form['signature']
+    subject = "Visitor Sign Out Notification"
+    body = f"<p>Visitor {full_name} has signed out.</p>"
 
-    body = f"Key Sign In:\nName: {full_name}\nCompany: {company}\nKey Number: {key_number}\nMobile: {mobile_number}\nContact: {site_contact}"
-    send_email("Key Sign In", body, "recipient@example.com", signature)
-    return redirect('/')
+    send_email(subject, body, ADMIN_EMAIL)
 
-@app.route('/submit_key_sign_out', methods=['POST'])
-def submit_key_sign_out():
-    full_name = request.form['fullName']
-    body = f"Key Sign Out:\nName: {full_name}"
-    send_email("Key Sign Out", body, "recipient@example.com")
-    return redirect('/')
+    return redirect(url_for('dashboard'))
 
 @app.route('/submit_vehicle_sign_in', methods=['POST'])
 def submit_vehicle_sign_in():
@@ -136,17 +127,71 @@ def submit_vehicle_sign_in():
     site_contact = request.form['siteContact']
     signature = request.form['signature']
 
-    body = f"Vehicle Sign In:\nName: {full_name}\nCompany: {company}\nVehicle: {vehicle_registration}\nMobile: {mobile_number}\nContact: {site_contact}"
-    send_email("Vehicle Sign In", body, "recipient@example.com", signature)
-    return redirect('/')
+    vehicles.append({'full_name': full_name})
+
+    subject = "Vehicle Sign In Notification"
+    body = f"""
+    <p>Full Name: {full_name}</p>
+    <p>Company: {company}</p>
+    <p>Vehicle Registration: {vehicle_registration}</p>
+    <p>Mobile Number: {mobile_number}</p>
+    <p>Site Contact: {site_contact}</p>
+    <p>Signature:</p>
+    """
+
+    send_email(subject, body, ADMIN_EMAIL, signature_image=signature)
+
+    return redirect(url_for('dashboard'))
 
 @app.route('/submit_vehicle_sign_out', methods=['POST'])
 def submit_vehicle_sign_out():
     full_name = request.form['fullName']
-    body = f"Vehicle Sign Out:\nName: {full_name}"
-    send_email("Vehicle Sign Out", body, "recipient@example.com")
-    return redirect('/')
+    vehicles[:] = [vehicle for vehicle in vehicles if vehicle['full_name'] != full_name]
+
+    subject = "Vehicle Sign Out Notification"
+    body = f"<p>Vehicle signed out by {full_name}.</p>"
+
+    send_email(subject, body, ADMIN_EMAIL)
+
+    return redirect(url_for('dashboard'))
+
+@app.route('/submit_key_sign_in', methods=['POST'])
+def submit_key_sign_in():
+    full_name = request.form['fullName']
+    key_number = request.form['keyNumber']
+    company = request.form['company']
+    mobile_number = request.form['mobileNumber']
+    site_contact = request.form['siteContact']
+    signature = request.form['signature']
+
+    keys.append({'full_name': full_name})
+
+    subject = "Key Sign In Notification"
+    body = f"""
+    <p>Full Name: {full_name}</p>
+    <p>Company: {company}</p>
+    <p>Key Number: {key_number}</p>
+    <p>Mobile Number: {mobile_number}</p>
+    <p>Site Contact: {site_contact}</p>
+    <p>Signature:</p>
+    """
+
+    send_email(subject, body, ADMIN_EMAIL, signature_image=signature)
+
+    return redirect(url_for('dashboard'))
+
+@app.route('/submit_key_sign_out', methods=['POST'])
+def submit_key_sign_out():
+    full_name = request.form['fullName']
+    keys[:] = [key for key in keys if key['full_name'] != full_name]
+
+    subject = "Key Sign Out Notification"
+    body = f"<p>Key signed out by {full_name}.</p>"
+
+    send_email(subject, body, ADMIN_EMAIL)
+
+    return redirect(url_for('dashboard'))
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(debug=True, host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=port, debug=True)
